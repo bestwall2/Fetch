@@ -8,15 +8,13 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    
+
     outputs:
       version: ${{ steps.bump_version.outputs.version }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v2
-        with:
-          ref: ${{ github.event.inputs.branchName }}
 
       - name: Cache Android SDK
         uses: actions/cache@v2
@@ -25,7 +23,8 @@ jobs:
           key: ${{ runner.os }}-sdk-${{ hashFiles('**/build.gradle') }}
           restore-keys: ${{ runner.os }}-sdk-
 
-      - uses: actions/setup-java@v3
+      - name: Setup Java
+        uses: actions/setup-java@v3
         with:
           distribution: temurin
           java-version: 8
@@ -39,46 +38,41 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Bump version
-  id: bump_version
-  env:
-    GITHUB_TOKEN: ${{ secrets.JJ }}
-    commit: ${{ github.event.head_commit.message }}
-  run: |
-    set -e
-    git fetch --depth=1 origin +refs/tags/*:refs/tags/* || echo "No tags found"
-    old="$(git describe --abbrev=0 --tags $(git rev-list --tags --max-count=1) || echo "0.0.0.0")"
-    echo ${old}
-    # Extract version components
-    major=$(echo "${old}" | awk -F. '{print $1}')
-    minor=$(echo "${old}" | awk -F. '{print $2}')
-    patch=$(echo "${old}" | awk -F. '{print $3}')
-    build=$(echo "${old}" | awk -F. '{print $4}')
-    build=$((build + 1))
-    # Check commit message for version bump keywords
-    echo "${commit}"
-    if echo "${commit}" | grep -q -w "major"; then
-      major=$((major + 1))
-      minor=0
-      patch=0
-      build=0
-    elif echo "${commit}" | grep -q -w "minor"; then
-      minor=$((minor + 1))
-      patch=0
-      build=0
-    elif echo "${commit}" | grep -q -w "patch"; then
-      patch=$((patch + 1))
-      build=0
-    fi
-    # Construct new version string
-    new_version="${major}.${minor}.${patch}.${build}"
-  
-    # Output new version as an environment variable
-    echo "version=${new_version}" >> "$GITHUB_ENV"
-    echo "version=${new_version}" >> "$GITHUB_OUTPUT"
-    echo ${commit}
-    echo ${new_version}
+        id: bump_version
+        env:
+          GITHUB_TOKEN: ${{ secrets.JJ }}
+          commit: ${{ github.event.head_commit.message }}
+        run: |
+          set -e
+          git fetch --depth=1 origin +refs/tags/*:refs/tags/* || echo "No tags found"
+          old="$(git describe --abbrev=0 --tags $(git rev-list --tags --max-count=1) || echo "0.0.0.0")"
+          echo "${old}"
+          # Extract version components
+          major=$(echo "${old}" | awk -F. '{print $1}')
+          minor=$(echo "${old}" | awk -F. '{print $2}')
+          patch=$(echo "${old}" | awk -F. '{print $3}')
+          build=$(echo "${old}" | awk -F. '{print $4}')
+          build=$((build + 1))
+          # Check commit message for version bump keywords
+          if echo "${commit}" | grep -q -w "major"; then
+            major=$((major + 1))
+            minor=0
+            patch=0
+            build=0
+          elif echo "${commit}" | grep -q -w "minor"; then
+            minor=$((minor + 1))
+            patch=0
+            build=0
+          elif echo "${commit}" | grep -q -w "patch"; then
+            patch=$((patch + 1))
+            build=0
+          fi
+          # Construct new version string
+          new_version="${major}.${minor}.${patch}.${build}"
+          echo "version=${new_version}" >> "$GITHUB_ENV"
+          echo "version=${new_version}" >> "$GITHUB_OUTPUT"
 
-      - name: apk
+      - name: Build APK
         env:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
@@ -95,43 +89,46 @@ jobs:
           patch=$(echo "${new}" | awk -F. '{print $3}')
           build=$(echo "${new}" | awk -F. '{print $4}')
           property_content="majorVersion=${major}\nminorVersion=${minor}\npatchVersion=${patch}\nbuildNumber=${build}"
-          echo ${property_content}
-          # Write the property file
           echo -e "${property_content}" > version.properties
           ./gradlew :app:assembleRelease --scan
           rm -f ${KEY_PATH}
 
-      # attaches the build apks in workflow run page 
-      - uses: actions/upload-artifact@v3
+      - name: Upload APKs
+        uses: actions/upload-artifact@v3
         with:
           name: builds
-          path: ${{ github.workspace }}/app/build/outputs/apk/release/*.apk
+          path: app/build/outputs/apk/release/*.apk
 
-      # attaches the build report in workflow run page 
-      - uses: actions/upload-artifact@v3
+      - name: Upload Build Reports
+        uses: actions/upload-artifact@v3
         with:
-          name: ${{ github.workspace }}/build-reports
-          path: ${{ github.workspace }}/build/reports/
-  
+          name: build-reports
+          path: build/reports/
+
   release:
     name: Release APK
     needs: build
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v2
+      - name: Checkout
+        uses: actions/checkout@v2
         with:
-          fetch-depth: '0'
-      - name: Download APK from build
+          fetch-depth: 0
+
+      - name: Download APK
         uses: actions/download-artifact@v1
         with:
           name: builds
-      - name: print file name
+
+      - name: Print APK Version
         env:
           ver: ${{ needs.build.outputs.version }}
         run: |
-          echo ${ver}
+          echo "Version: ${ver}"
           cd builds
           ls
+
       - name: Create Release
         id: create_release
         uses: softprops/action-gh-release@v1
@@ -142,4 +139,4 @@ jobs:
           release_name: ${{ needs.build.outputs.version }}
           draft: false
           prerelease: false
-          files: ${{ github.workspace }}/builds/*.apk
+          files: builds/*.apk
