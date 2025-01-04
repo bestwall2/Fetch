@@ -62,7 +62,12 @@ jobs:
           mkdir -p keys
           echo "dummy-keystore-content" > keys/dummy.keystore
           echo "{}" > google-services.json
-          echo "majorVersion=1\nminorVersion=0\npatchVersion=0\nbuildNumber=1" > version.properties
+          cat <<EOL > version.properties
+          majorVersion=1
+          minorVersion=0
+          patchVersion=0
+          buildNumber=1
+          EOL
           ./gradlew :app:assembleRelease --scan
 
       - name: Upload APKs
