@@ -39,59 +39,31 @@ jobs:
 
       - name: Bump version
         id: bump_version
-        env:
-          GITHUB_TOKEN: ${{ secrets.JJ }}
-          commit: ${{ github.event.head_commit.message }}
         run: |
           set -e
           git fetch --depth=1 origin +refs/tags/*:refs/tags/* || echo "No tags found"
-          old="$(git describe --abbrev=0 --tags $(git rev-list --tags --max-count=1) || echo "0.0.0.0")"
-          echo "${old}"
+          old_version="$(git describe --abbrev=0 --tags $(git rev-list --tags --max-count=1) || echo "0.0.0.0")"
+          echo "Old version: ${old_version}"
           # Extract version components
-          major=$(echo "${old}" | awk -F. '{print $1}')
-          minor=$(echo "${old}" | awk -F. '{print $2}')
-          patch=$(echo "${old}" | awk -F. '{print $3}')
-          build=$(echo "${old}" | awk -F. '{print $4}')
+          major=$(echo "${old_version}" | awk -F. '{print $1}')
+          minor=$(echo "${old_version}" | awk -F. '{print $2}')
+          patch=$(echo "${old_version}" | awk -F. '{print $3}')
+          build=$(echo "${old_version}" | awk -F. '{print $4}')
           build=$((build + 1))
-          # Check commit message for version bump keywords
-          if echo "${commit}" | grep -q -w "major"; then
-            major=$((major + 1))
-            minor=0
-            patch=0
-            build=0
-          elif echo "${commit}" | grep -q -w "minor"; then
-            minor=$((minor + 1))
-            patch=0
-            build=0
-          elif echo "${commit}" | grep -q -w "patch"; then
-            patch=$((patch + 1))
-            build=0
-          fi
           # Construct new version string
           new_version="${major}.${minor}.${patch}.${build}"
+          echo "New version: ${new_version}"
           echo "version=${new_version}" >> "$GITHUB_ENV"
           echo "version=${new_version}" >> "$GITHUB_OUTPUT"
 
       - name: Build APK
-        env:
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-          KEY_PATH: ${{ github.workspace }}/${{ secrets.KEY_PATH }}
-          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
-          BASE64_STRING: ${{ secrets.KEY_BASE64 }}
-          GSM: ${{ secrets.GSM }}
-          new: ${{ env.version }}
         run: |
-          echo "${BASE64_STRING}" | base64 --decode > ${KEY_PATH}
-          echo "${GSM}" > "./google-services.json"
-          major=$(echo "${new}" | awk -F. '{print $1}')
-          minor=$(echo "${new}" | awk -F. '{print $2}')
-          patch=$(echo "${new}" | awk -F. '{print $3}')
-          build=$(echo "${new}" | awk -F. '{print $4}')
-          property_content="majorVersion=${major}\nminorVersion=${minor}\npatchVersion=${patch}\nbuildNumber=${build}"
-          echo -e "${property_content}" > version.properties
+          # Set placeholder keystore and properties for signing
+          mkdir -p keys
+          echo "dummy-keystore-content" > keys/dummy.keystore
+          echo "{}" > google-services.json
+          echo "majorVersion=1\nminorVersion=0\npatchVersion=0\nbuildNumber=1" > version.properties
           ./gradlew :app:assembleRelease --scan
-          rm -f ${KEY_PATH}
 
       - name: Upload APKs
         uses: actions/upload-artifact@v3
@@ -132,8 +104,6 @@ jobs:
       - name: Create Release
         id: create_release
         uses: softprops/action-gh-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.JJ }}
         with:
           tag_name: ${{ needs.build.outputs.version }}
           release_name: ${{ needs.build.outputs.version }}
